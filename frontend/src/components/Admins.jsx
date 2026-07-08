@@ -111,7 +111,7 @@ export default function AdminDashboard() {
         // Handle not authenticated case
         return;
       }
-      const response = await fetch('http://localhost:5000/api/admin/profile', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -380,7 +380,7 @@ export default function AdminDashboard() {
           navigate('/login');
           return;
         }
-        const response = await fetch('http://localhost:5000/api/admin/profile', {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/profile`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
