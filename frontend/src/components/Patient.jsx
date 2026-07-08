@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, FileText, User, Users, ChevronDown, Home, UserCircle, Calendar as CalendarIcon, Hospital } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+import { API_BASE_URL } from '../config.js';
+
 const Button = ({ children, variant = 'primary', className = '', ...props }) => (
   <button
     className={`inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
@@ -101,7 +103,7 @@ export default function PatientDashboard() {
         navigate('/login');
         return;
       }
-      const response = await fetch('http://localhost:5000/api/patient/profile', {
+      const response = await fetch(`${API_BASE_URL}/api/patient/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -125,7 +127,7 @@ export default function PatientDashboard() {
         navigate('/login');
         return;
       }
-      const response = await fetch('http://localhost:5000/api/doctor/all', {
+      const response = await fetch(`${API_BASE_URL}/api/doctor/all`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -145,7 +147,7 @@ export default function PatientDashboard() {
     if (!doctorId || !date) return;
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/patient/available-slots?doctorId=${doctorId}&date=${date}`, {
+      const response = await fetch(`${API_BASE_URL}/api/patient/available-slots?doctorId=${doctorId}&date=${date}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -168,7 +170,7 @@ export default function PatientDashboard() {
         navigate('/login');
         return;
       }
-      const response = await fetch('http://localhost:5000/api/patient/appointments', {
+      const response = await fetch(`${API_BASE_URL}/api/patient/appointments`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -192,7 +194,7 @@ export default function PatientDashboard() {
         navigate('/login');
         return;
       }
-      const response = await fetch('http://localhost:5000/api/patient/care-team', {
+      const response = await fetch(`${API_BASE_URL}/api/patient/care-team`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -215,7 +217,7 @@ export default function PatientDashboard() {
         navigate('/login');
         return;
       }
-      const response = await fetch('http://localhost:5000/api/patient/prescriptions', {
+      const response = await fetch(`${API_BASE_URL}/api/patient/prescriptions`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -378,7 +380,7 @@ export default function PatientDashboard() {
     const handleSave = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/patient/profile', {
+        const response = await fetch(`${API_BASE_URL}/api/patient/profile`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -469,7 +471,7 @@ export default function PatientDashboard() {
       e.preventDefault();
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/patient/book-appointment', {
+        const response = await fetch(`${API_BASE_URL}/api/patient/book-appointment`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

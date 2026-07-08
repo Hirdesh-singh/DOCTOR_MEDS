@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 
+import { API_BASE_URL } from '../config.js';
+
 const SignUp = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -38,7 +40,7 @@ const SignUp = () => {
     e.preventDefault();
     if (validateForm()) {
       try {
-        const response = await fetch('http://localhost:5000/api/signup', {
+        const response = await fetch(`${API_BASE_URL}/api/signup`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

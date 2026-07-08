@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: doctor-meds-backend
+    env: node
+    repo: https://github.com/Hirdesh-singh/DOCTOR_MEDS
+    branch: main
+    buildCommand: "cd backend && npm install"
+    startCommand: "cd backend && node server.js"
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+    healthCheckPath: "/api/health"
+    region: oregon
+
+staticSites:
+  - name: doctor-meds-frontend
+    repo: https://github.com/Hirdesh-singh/DOCTOR_MEDS
+    branch: main
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: "frontend/build"
+    envVars: []
+    region: oregon
