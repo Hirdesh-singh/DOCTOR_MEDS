@@ -1,748 +1,574 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, FileText, User, Users, ChevronDown, Home, UserCircle, Calendar as Hospital, Stethoscope } from 'lucide-react';
+import {
+  Calendar, Clock, FileText, User, Users, Home, UserCircle, Stethoscope,
+  Hospital, Brain, CheckCircle, AlertTriangle, PlusCircle, X, ChevronDown
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-
 import { API_BASE_URL } from '../config.js';
 
-const Button = ({ children, variant = 'primary', className = '', ...props }) => (
-  <button
-    className={`inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-      variant === 'primary'
-        ? 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-        : variant === 'outline'
-        ? 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-        : 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-    } ${className}`}
-    {...props}
-  >
-    {children}
-  </button>
-);
+// ─── Shared Components ────────────────────────────────────────────────────────
+const Button = ({ children, variant = 'primary', size = 'md', className = '', disabled, ...props }) => {
+  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed';
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-3 text-base' };
+  const variants = {
+    primary: 'bg-blue-600 text-white hover:bg-blue-700',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+    outline: 'border border-gray-300 text-gray-700 hover:bg-gray-50',
+    ghost: 'text-gray-600 hover:bg-gray-100',
+    danger: 'bg-red-600 text-white hover:bg-red-700',
+  };
+  return <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled} {...props}>{children}</button>;
+};
 
 const Card = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-lg shadow-md ${className}`}>
-    {children}
-  </div>
+  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>{children}</div>
 );
 
-const CardHeader = ({ children, icon: Icon }) => (
-  <div className="px-4 py-5 border-b border-gray-200 sm:px-6 flex items-center justify-between">
-    {children}
-    {Icon && <Icon className="h-5 w-5 text-blue-600 ml-2" />}
-  </div>
-);
+const Badge = ({ children, type = 'default' }) => {
+  const styles = {
+    default: 'bg-gray-100 text-gray-700', info: 'bg-blue-100 text-blue-700',
+    success: 'bg-emerald-100 text-emerald-700', warning: 'bg-amber-100 text-amber-700',
+    danger: 'bg-red-100 text-red-700', high: 'bg-red-100 text-red-700',
+    medium: 'bg-amber-100 text-amber-700', low: 'bg-emerald-100 text-emerald-700',
+  };
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[type] || styles.default}`}>{children}</span>;
+};
 
-const CardTitle = ({ children }) => (
-  <h3 className="text-lg leading-6 font-medium text-gray-900">{children}</h3>
-);
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, []);
+  const styles = { success: 'bg-emerald-600', error: 'bg-red-600', info: 'bg-blue-600' };
+  return (
+    <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg text-white shadow-lg ${styles[type] || styles.info} max-w-sm`}>
+      <span className="text-sm">{message}</span>
+      <button onClick={onClose}><X size={16} /></button>
+    </div>
+  );
+};
 
-const CardContent = ({ children }) => (
-  <div className="px-4 py-5 sm:p-6">{children}</div>
-);
+const Modal = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 overflow-y-auto py-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+};
 
-const CardFooter = ({ children }) => (
-  <div className="px-4 py-4 sm:px-6">{children}</div>
-);
-
-const Input = ({ ...props }) => (
-  <input
-    className="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md px-1 h-6"
-    {...props}
-  />
-);
-
-const Label = ({ children, htmlFor }) => (
-  <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700">
-    {children}
-  </label>
-);
-
-const Select = ({ children, ...props }) => (
-  <select
-    className="mt-1 block w-full pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-    {...props}
-  >
-    {children}
-  </select>
-);
-
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function DoctorDashboard() {
-  const [showAppointments, setShowAppointments] = useState(false);
-  const [showPatients, setShowPatients] = useState(false);
   const [activeTab, setActiveTab] = useState('Dashboard');
-  const [isEditing, setIsEditing] = useState(false);
   const [doctorInfo, setDoctorInfo] = useState(null);
-  const [editedInfo, setEditedInfo] = useState(null);
   const [patients, setPatients] = useState([]);
-  const [appointmentData, setAppointmentData] = useState({
-    patientId: '',
-    date: '',
-    time: '',
-    reason: '',
-    prescriptionId: '',
-    medication: '',
-    dosage: '',
-    frequency: ''
-  });
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [selectedAction, setSelectedAction] = useState('');
-  const [existingPrescriptions, setExistingPrescriptions] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [allAppointments, setAllAppointments] = useState([]);
+  const [existingPrescriptions, setExistingPrescriptions] = useState([]);
+  const [toasts, setToasts] = useState([]);
+
+  // Appointment detail modal
+  const [selectedAppt, setSelectedAppt] = useState(null);
+  const [notesForm, setNotesForm] = useState({ clinicalNotes: '', medicines: [] });
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [newMedicine, setNewMedicine] = useState({ name: '', dosage: '', frequency: '', durationDays: 7, instructions: '' });
+
+  // Legacy patient mgmt
+  const [appointmentData, setAppointmentData] = useState({ patientId: '', date: '', time: '', reason: '', medication: '', dosage: '', frequency: '' });
+  const [selectedAction, setSelectedAction] = useState('');
+  const [availableSlots, setAvailableSlots] = useState([]);
+
+  const [showPrescriptions, setShowPrescriptions] = useState(false);
+
   const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  const addToast = (msg, type = 'info') => {
+    const id = Date.now();
+    setToasts((p) => [...p, { id, message: msg, type }]);
+  };
+  const removeToast = (id) => setToasts((p) => p.filter((t) => t.id !== id));
 
   useEffect(() => {
+    if (!token) { navigate('/login'); return; }
     fetchDoctorProfile();
     fetchPatientsWithAppointments();
-    fetchAppointments();
+    fetchTodayAppointments();
+    fetchAllAppointments();
   }, []);
 
   useEffect(() => {
-    if (appointmentData.patientId) {
-      fetchExistingPrescriptions(appointmentData.patientId);
-    }
+    if (appointmentData.patientId) fetchExistingPrescriptions(appointmentData.patientId);
   }, [appointmentData.patientId]);
-
-  const fetchExistingPrescriptions = async (patientId) => {
-    if (!patientId) return;
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/doctor/prescriptions/${patientId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const prescriptions = await response.json();
-        setExistingPrescriptions(prescriptions);
-      } else {
-        console.error('Failed to fetch existing prescriptions');
-        setExistingPrescriptions([]);
-      }
-    } catch (error) {
-      console.error('Error fetching existing prescriptions:', error);
-      setExistingPrescriptions([]);
-    }
-  };
 
   const fetchDoctorProfile = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/doctor/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDoctorInfo(data);
-        setEditedInfo(data);
-      } else {
-        console.error('Failed to fetch doctor profile');
-      }
-    } catch (error) {
-      console.error('Error fetching doctor profile:', error);
-    }
+      const r = await fetch(`${API_BASE_URL}/api/doctor/profile`, { headers });
+      if (r.ok) { const d = await r.json(); setDoctorInfo(d); }
+    } catch {}
+  };
+
+  const fetchTodayAppointments = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/doctor/appointments`, { headers });
+      if (r.ok) setAppointments(await r.json());
+    } catch {}
+  };
+
+  const fetchAllAppointments = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/appointments`, { headers });
+      if (r.ok) { const d = await r.json(); setAllAppointments(d.appointments || []); }
+    } catch {}
   };
 
   const fetchPatientsWithAppointments = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/doctor/patients-with-appointments`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Patients with appointments:', data); // Add this line for debugging
-        setPatients(data);
-      } else {
-        console.error('Failed to fetch patients with appointments');
-      }
-    } catch (error) {
-      console.error('Error fetching patients with appointments:', error);
-    }
+      const r = await fetch(`${API_BASE_URL}/api/doctor/patients-with-appointments`, { headers });
+      if (r.ok) setPatients(await r.json());
+    } catch {}
   };
 
-  const fetchAppointments = async () => {
+  const fetchExistingPrescriptions = async (patientId) => {
+    if (!patientId) return;
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/doctor/appointments`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const now = new Date();
-        // Filter and sort appointments by date and time in ascending order
-        const sortedAppointments = data
-          .filter(appointment => new Date(appointment.date) > now || (new Date(appointment.date).toLocaleDateString() === now.toLocaleDateString() && appointment.time > now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })))
-          .sort((a, b) => new Date(a.date + ' ' + a.time) - new Date(b.date + ' ' + b.time));
-        setAppointments(sortedAppointments);
-      } else {
-        console.error('Failed to fetch appointments');
-      }
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
-    }
+      const r = await fetch(`${API_BASE_URL}/api/doctor/prescriptions/${patientId}`, { headers });
+      if (r.ok) setExistingPrescriptions(await r.json());
+    } catch {}
   };
 
-  const renderDashboard = () => (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+  const fetchAvailableSlotsDoctor = async (patientId, date) => {
+    if (!patientId || !date) return;
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/doctor/available-slots?patientId=${patientId}&date=${date}`, { headers });
+      if (r.ok) setAvailableSlots(await r.json());
+    } catch {}
+  };
+
+  // ─── Post-Visit Notes Submission ──────────────────────────────────────────────
+  const handleSubmitNotes = async () => {
+    if (!notesForm.clinicalNotes.trim()) {
+      addToast('Please enter clinical notes.', 'error');
+      return;
+    }
+    setSavingNotes(true);
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/appointments/${selectedAppt._id}/notes`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          clinicalNotes: notesForm.clinicalNotes,
+          prescription: { medicines: notesForm.medicines },
+        }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        addToast('Visit notes saved. AI post-visit summary being generated and sent to patient.', 'success');
+        setSelectedAppt(null);
+        fetchTodayAppointments();
+        fetchAllAppointments();
+      } else {
+        addToast(data.message || 'Failed to save notes.', 'error');
+      }
+    } catch { addToast('Network error.', 'error'); }
+    setSavingNotes(false);
+  };
+
+  const addMedicine = () => {
+    if (!newMedicine.name || !newMedicine.dosage || !newMedicine.frequency) {
+      addToast('Please fill medicine name, dosage, and frequency.', 'error');
+      return;
+    }
+    setNotesForm((p) => ({ ...p, medicines: [...p.medicines, { ...newMedicine }] }));
+    setNewMedicine({ name: '', dosage: '', frequency: '', durationDays: 7, instructions: '' });
+  };
+
+  // ─── Dashboard ─────────────────────────────────────────────────────────────────
+  const renderDashboard = () => {
+    const completed = allAppointments.filter((a) => a.status === 'COMPLETED').length;
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "Today's Schedule", value: appointments.length, icon: Calendar, color: 'blue' },
+            { label: 'Total Patients', value: patients.length, icon: Users, color: 'emerald' },
+            { label: 'Completed Visits', value: completed, icon: CheckCircle, color: 'purple' },
+            { label: 'Specialty', value: doctorInfo?.specialty || '—', icon: Stethoscope, color: 'gray', text: true },
+          ].map(({ label, value, icon: Icon, color, text }) => (
+            <Card key={label} className="p-4">
+              <div className={`w-10 h-10 bg-${color}-100 rounded-lg flex items-center justify-center mb-2`}>
+                <Icon size={20} className={`text-${color}-600`} />
+              </div>
+              <div className={`${text ? 'text-base' : 'text-2xl'} font-bold text-gray-900`}>{value}</div>
+              <div className="text-xs text-gray-500">{label}</div>
+            </Card>
+          ))}
+        </div>
+
+        {/* Today's Schedule */}
         <Card>
-          <CardHeader icon={Calendar}>
-            <CardTitle className="text-sm font-medium">Today's Appointments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {appointments.length}
-            </div>
-            {appointments.length > 0 ? (
-              <p className="text-xs text-gray-500">
-                Next: {appointments[0].patientId.firstName} {appointments[0].patientId.lastName} at {appointments[0].time}
-              </p>
-            ) : (
-              <p className="text-xs text-gray-500">
-                No appointments today
-              </p>
-            )}
-          </CardContent>
-          <CardFooter className="p-2">
-            <Button 
-              variant="ghost" 
-              className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-              onClick={() => setShowAppointments(!showAppointments)}
-            >
-              {showAppointments ? "Hide" : "View"} Today's Appointments
-              <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showAppointments ? "rotate-180" : ""}`} />
-            </Button>
-          </CardFooter>
-          {showAppointments && (
-            <div className="px-4 pb-4">
-              {appointments.length > 0 ? (
-                appointments.map((appointment, index) => (
-                  <div key={index} className="flex justify-between items-center py-2 border-t">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {appointment.patientId.firstName} {appointment.patientId.lastName}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {appointment.reason}
-                      </p>
-                    </div>
-                    <p className="text-sm">{appointment.time}</p>
+          <div className="p-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Calendar size={18} className="text-blue-600" /> Today's Schedule</h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {appointments.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">No appointments today.</div>
+            ) : appointments.map((appt) => (
+              <div key={appt._id} className="p-4 flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-gray-900">{appt.patientId?.firstName} {appt.patientId?.lastName}</p>
+                    {appt.aiUrgency && appt.aiUrgency !== 'Unavailable' && (
+                      <Badge type={appt.aiUrgency.toLowerCase()}>{appt.aiUrgency}</Badge>
+                    )}
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-4">
-                  No appointments scheduled for today
-                </p>
-              )}
-            </div>
-          )}
+                  <p className="text-sm text-gray-500">{appt.startTime} – {appt.endTime}</p>
+                  {appt.symptoms?.chiefSymptoms && (
+                    <p className="text-xs text-gray-500 mt-1 truncate max-w-xs">
+                      🩺 {appt.symptoms.chiefSymptoms}
+                    </p>
+                  )}
+                  {appt.aiPreVisitSummary && (
+                    <p className="text-xs text-blue-600 mt-1 truncate max-w-xs">
+                      🤖 {appt.aiPreVisitSummary}
+                    </p>
+                  )}
+                </div>
+                <Button size="sm" onClick={() => { setSelectedAppt(appt); setNotesForm({ clinicalNotes: appt.clinicalNotes || '', medicines: [] }); }}>
+                  {appt.status === 'COMPLETED' ? 'View' : 'Start Visit'}
+                </Button>
+              </div>
+            ))}
+          </div>
         </Card>
+
+        {/* Recent Patients */}
         <Card>
-          <CardHeader icon={Users}>
-            <CardTitle className="text-sm font-medium">Patients</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{patients.length}</div>
-            <p className="text-xs text-gray-500">Total patients under care</p>
-          </CardContent>
-          <CardFooter className="p-2">
-            <Button 
-              variant="ghost" 
-              className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-              onClick={() => setShowPatients(!showPatients)}
-            >
-              {showPatients ? "Hide" : "View All"} Patients
-              <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showPatients ? "rotate-180" : ""}`} />
-            </Button>
-          </CardFooter>
-          {showPatients && (
-            <div className="px-4 pb-4">
-              {patients.map((patient, index) => (
-                <div key={index} className="py-2 border-t">
-                  <p className="text-sm font-medium">
-                    {patient.firstName} {patient.lastName}
-                  </p>
+          <div className="p-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">Recent Patients</h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {patients.slice(0, 5).map((p) => (
+              <div key={p._id} className="p-4 flex justify-between">
+                <div>
+                  <p className="font-medium text-gray-900">{p.firstName} {p.lastName}</p>
                   <p className="text-xs text-gray-500">
-                    Last visit: {patient.lastVisit ? new Date(patient.lastVisit).toLocaleDateString('en-GB') : 'N/A'} | Next: {patient.nextAppointment ? new Date(patient.nextAppointment).toLocaleDateString('en-GB') : 'N/A'}
+                    Last visit: {p.lastVisit || 'N/A'} · Next: {p.nextAppointment || 'N/A'}
                   </p>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
         </Card>
       </div>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              <li className="flex items-center space-x-2">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span>New kits Available</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <FileText className="h-4 w-4 text-blue-600" />
-                <span>Updated medical records</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <User className="h-4 w-4 text-blue-600" />
-                <span>New patient registered</span>
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Upcoming Schedule</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              <li className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4 text-blue-600" />
-                <span>Doctor's meeting - Everyday, 10:00 AM</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <Stethoscope className="h-4 w-4 text-blue-600" />
-                <span>Cardiology conference - 20th Dec</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span>Staff Contact- 9856437823</span>
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
-    </>
-  );
-
-  const renderProfile = () => {
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setEditedInfo(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSave = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/api/doctor/profile`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(editedInfo)
-        });
-        if (response.ok) {
-          const updatedProfile = await response.json();
-          setDoctorInfo(updatedProfile);
-          setIsEditing(false);
-        } else {
-          const errorData = await response.json();
-          alert(`Failed to update doctor profile: ${errorData.error}`);
-        }
-      } catch (error) {
-        alert('Error updating doctor profile. Please try again.');
-      }
-    };
-
-    return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Doctor Profile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  name="firstName"
-                  value={isEditing ? editedInfo.firstName : doctorInfo?.firstName}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  name="lastName"
-                  value={isEditing ? editedInfo.lastName : doctorInfo?.lastName}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={isEditing ? editedInfo.email : doctorInfo?.email}
-                onChange={handleInputChange}
-                readOnly={!isEditing}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="specialty">Specialty</Label>
-              <Input
-                id="specialty"
-                name="specialty"
-                value={isEditing ? editedInfo.specialty : doctorInfo?.specialty}
-                onChange={handleInputChange}
-                readOnly={!isEditing}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="licenseNumber">License Number</Label>
-              <Input
-                id="licenseNumber"
-                name="licenseNumber"
-                value={isEditing ? editedInfo.licenseNumber : doctorInfo?.licenseNumber}
-                onChange={handleInputChange}
-                readOnly={!isEditing}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phoneNumber">Phone Number</Label>
-              <Input
-                id="phoneNumber"
-                name="phoneNumber"
-                value={isEditing ? editedInfo.phoneNumber : doctorInfo?.phoneNumber}
-                onChange={handleInputChange}
-                readOnly={!isEditing}
-              />
-            </div>
-          </form>
-        </CardContent>
-        <CardFooter>
-          {isEditing ? (
-            <>
-              <Button onClick={handleSave} className="mr-2">Save</Button>
-              <Button onClick={() => setIsEditing(false)} variant="outline">Cancel</Button>
-            </>
-          ) : (
-            <Button onClick={() => setIsEditing(true)} className="ml-auto">Edit Profile</Button>
-          )}
-        </CardFooter>
-      </Card>
     );
   };
 
+  // ─── Visit Modal ───────────────────────────────────────────────────────────────
+  const renderVisitModal = () => {
+    if (!selectedAppt) return null;
+    const isCompleted = selectedAppt.status === 'COMPLETED';
+
+    return (
+      <Modal isOpen={!!selectedAppt} onClose={() => setSelectedAppt(null)} title={isCompleted ? 'Visit Summary' : 'Conduct Visit'}>
+        {/* Patient Info */}
+        <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+          <p className="font-semibold">{selectedAppt.patientId?.firstName} {selectedAppt.patientId?.lastName}</p>
+          <p className="text-gray-500">{selectedAppt.date} · {selectedAppt.startTime}</p>
+          {selectedAppt.aiUrgency && selectedAppt.aiUrgency !== 'Unavailable' && (
+            <div className="mt-1"><Badge type={selectedAppt.aiUrgency.toLowerCase()}>Urgency: {selectedAppt.aiUrgency}</Badge></div>
+          )}
+        </div>
+
+        {/* Symptoms */}
+        {selectedAppt.symptoms?.chiefSymptoms && (
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-gray-700 mb-1">Patient Symptoms</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm space-y-1">
+              <p>{selectedAppt.symptoms.chiefSymptoms}</p>
+              {selectedAppt.symptoms.duration && <p className="text-gray-500">Duration: {selectedAppt.symptoms.duration}</p>}
+              {selectedAppt.symptoms.severity && <p className="text-gray-500">Severity: {selectedAppt.symptoms.severity}</p>}
+              {selectedAppt.symptoms.additionalNotes && <p className="text-gray-500">{selectedAppt.symptoms.additionalNotes}</p>}
+            </div>
+          </div>
+        )}
+
+        {/* AI Pre-Visit */}
+        {selectedAppt.aiSuggestedQuestions?.length > 0 && (
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1"><Brain size={14} className="text-blue-600" /> AI Suggested Questions</p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <ul className="space-y-1">
+                {selectedAppt.aiSuggestedQuestions.map((q, i) => (
+                  <li key={i} className="text-xs text-blue-800">• {q}</li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-400 mt-2">AI-generated. Not a diagnosis.</p>
+            </div>
+          </div>
+        )}
+
+        {!isCompleted && (
+          <>
+            {/* Clinical Notes */}
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Clinical Notes *</label>
+              <textarea
+                rows={4}
+                placeholder="Enter your clinical observations, diagnosis, and recommendations..."
+                value={notesForm.clinicalNotes}
+                onChange={(e) => setNotesForm((p) => ({ ...p, clinicalNotes: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Prescription */}
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Prescription</label>
+
+              {/* Added medicines */}
+              {notesForm.medicines.length > 0 && (
+                <div className="mb-3 space-y-2">
+                  {notesForm.medicines.map((m, i) => (
+                    <div key={i} className="flex justify-between items-center bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-xs">
+                      <span><strong>{m.name}</strong> · {m.dosage} · {m.frequency} · {m.durationDays} days</span>
+                      <button
+                        onClick={() => setNotesForm((p) => ({ ...p, medicines: p.medicines.filter((_, j) => j !== i) }))}
+                        className="text-red-400 hover:text-red-600 ml-2"
+                      ><X size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add medicine form */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    placeholder="Medicine name"
+                    value={newMedicine.name}
+                    onChange={(e) => setNewMedicine((p) => ({ ...p, name: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    placeholder="Dosage (e.g. 500mg)"
+                    value={newMedicine.dosage}
+                    onChange={(e) => setNewMedicine((p) => ({ ...p, dosage: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500"
+                  />
+                  <select
+                    value={newMedicine.frequency}
+                    onChange={(e) => setNewMedicine((p) => ({ ...p, frequency: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Frequency</option>
+                    <option value="once_daily">Once daily</option>
+                    <option value="twice_daily">Twice daily</option>
+                    <option value="three_daily">Three times daily</option>
+                    <option value="four_daily">Four times daily</option>
+                    <option value="as_needed">As needed</option>
+                  </select>
+                  <input
+                    type="number" min="1" placeholder="Days"
+                    value={newMedicine.durationDays}
+                    onChange={(e) => setNewMedicine((p) => ({ ...p, durationDays: parseInt(e.target.value) || 7 }))}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <input
+                  placeholder="Instructions (optional, e.g. take with food)"
+                  value={newMedicine.instructions}
+                  onChange={(e) => setNewMedicine((p) => ({ ...p, instructions: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500"
+                />
+                <Button size="sm" variant="outline" onClick={addMedicine} className="w-full">
+                  <PlusCircle size={14} className="mr-1" /> Add Medicine
+                </Button>
+              </div>
+            </div>
+
+            <Button className="w-full" onClick={handleSubmitNotes} disabled={savingNotes}>
+              {savingNotes ? 'Saving...' : 'Complete Visit & Generate AI Summary'}
+            </Button>
+          </>
+        )}
+
+        {isCompleted && selectedAppt.clinicalNotes && (
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-1">Clinical Notes</p>
+            <div className="bg-gray-50 rounded-lg p-3 text-sm">{selectedAppt.clinicalNotes}</div>
+          </div>
+        )}
+      </Modal>
+    );
+  };
+
+  // ─── Legacy Patient Management (kept for backward compat) ────────────────────
   const renderPatientManagement = () => {
     const handleInputChange = (e) => {
       const { name, value } = e.target;
-      setAppointmentData(prev => ({ ...prev, [name]: value }));
-
-      if (name === 'action') {
-        setSelectedAction(value);
-      }
-
-      if (name === 'patientId') {
-        fetchExistingPrescriptions(value);
-      }
-
-      if (name === 'date' || name === 'patientId') {
-        fetchAvailableSlots(appointmentData.patientId, value);
-      }
-    };
-
-    const fetchAvailableSlots = async (patientId, date) => {
-      if (!patientId || !date) return;
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/api/doctor/available-slots?patientId=${patientId}&date=${date}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const slots = await response.json();
-          setAvailableSlots(slots);
-        } else {
-          console.error('Failed to fetch available slots');
-          setAvailableSlots([]);
-        }
-      } catch (error) {
-        console.error('Error fetching available slots:', error);
-        setAvailableSlots([]);
-      }
-    };
-
-    const handleEditPrescription = (prescription) => {
-      setAppointmentData({
-        ...appointmentData,
-        prescriptionId: prescription._id,
-        medication: prescription.medication || '',
-        dosage: prescription.dosage || '',
-        frequency: prescription.frequency || ''
-      });
-      setSelectedAction('prescribe-medication');
-    };
-
-    const handleDeletePrescription = async (prescriptionId) => {
-      if (window.confirm('Are you sure you want to delete this prescription?')) {
-        try {
-          const token = localStorage.getItem('token');
-          const response = await fetch(`${API_BASE_URL}/api/doctor/prescriptions/${prescriptionId}`, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          if (response.ok) {
-            alert('Prescription deleted successfully');
-            fetchExistingPrescriptions(appointmentData.patientId);
-          } else {
-            const errorData = await response.json();
-            alert(`Failed to delete prescription: ${errorData.error}`);
-            console.error('Error details:', errorData.details);
-          }
-        } catch (error) {
-          alert('Error deleting prescription. Please try again.');
-          console.error('Error deleting prescription:', error);
-        }
-      }
+      setAppointmentData((p) => ({ ...p, [name]: value }));
+      if (name === 'action') setSelectedAction(value);
+      if (name === 'patientId') fetchExistingPrescriptions(value);
+      if (name === 'date' || name === 'patientId') fetchAvailableSlotsDoctor(appointmentData.patientId, value);
     };
 
     const handleSubmit = async (e) => {
       e.preventDefault();
       if (selectedAction === 'prescribe-medication') {
         try {
-          const token = localStorage.getItem('token');
           const url = appointmentData.prescriptionId
             ? `${API_BASE_URL}/api/doctor/prescriptions/${appointmentData.prescriptionId}`
             : `${API_BASE_URL}/api/doctor/prescribe-medication`;
           const method = appointmentData.prescriptionId ? 'PUT' : 'POST';
-          const response = await fetch(url, {
-            method,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              patientId: appointmentData.patientId,
-              medication: appointmentData.medication,
-              dosage: appointmentData.dosage,
-              frequency: appointmentData.frequency
-            })
-          });
-          if (response.ok) {
-            const result = await response.json();
-            alert(appointmentData.prescriptionId ? 'Medication updated successfully' : 'Medication prescribed successfully');
-            setAppointmentData({
-              ...appointmentData,
-              prescriptionId: '',
-              medication: '',
-              dosage: '',
-              frequency: ''
-            });
-            fetchExistingPrescriptions(appointmentData.patientId);
-            setSelectedAction('');
-          } else {
-            const errorData = await response.json();
-            alert(`Failed to ${appointmentData.prescriptionId ? 'update' : 'prescribe'} medication: ${errorData.error}`);
-          }
-        } catch (error) {
-          alert(`Error ${appointmentData.prescriptionId ? 'updating' : 'prescribing'} medication. Please try again.`);
-        }
+          const r = await fetch(url, { method, headers, body: JSON.stringify(appointmentData) });
+          if (r.ok) { addToast('Prescription saved.', 'success'); fetchExistingPrescriptions(appointmentData.patientId); }
+          else addToast('Failed to save prescription.', 'error');
+        } catch { addToast('Error.', 'error'); }
       } else if (selectedAction === 'schedule-appointment') {
         try {
-          const token = localStorage.getItem('token');
-          const response = await fetch(`${API_BASE_URL}/api/doctor/schedule-appointment`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              patientId: appointmentData.patientId,
-              date: appointmentData.date,
-              time: appointmentData.time,
-              reason: appointmentData.reason
-            })
+          const r = await fetch(`${API_BASE_URL}/api/doctor/schedule-appointment`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ patientId: appointmentData.patientId, date: appointmentData.date, time: appointmentData.time, reason: appointmentData.reason }),
           });
-          if (response.ok) {
-            alert('Appointment scheduled successfully');
-            setAppointmentData({
-              patientId: '',
-              date: '',
-              time: '',
-              reason: '',
-              prescriptionId: '',
-              medication: '',
-              dosage: '',
-              frequency: ''
-            });
-            setSelectedAction('');
-          } else {
-            const errorData = await response.json();
-            alert(`Failed to schedule appointment: ${errorData.error}`);
-          }
-        } catch (error) {
-          alert('Error scheduling appointment. Please try again.');
-        }
+          if (r.ok) addToast('Appointment scheduled.', 'success');
+          else { const d = await r.json(); addToast(d.error || 'Failed.', 'error'); }
+        } catch { addToast('Error.', 'error'); }
       }
     };
 
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Patient Management</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="patient">Select Patient</Label>
-              <Select id="patient" name="patientId" value={appointmentData.patientId} onChange={handleInputChange}>
-                <option value="">Choose a patient</option>
-                {patients.map((patient) => (
-                  <option key={patient._id} value={patient._id}>
-                    {patient.firstName} {patient.lastName}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="action">Action</Label>
-              <Select id="action" name="action" value={selectedAction} onChange={handleInputChange}>
-                <option value="">Choose an action</option>
-                <option value="schedule-appointment">Schedule Appointment</option>
-                <option value="prescribe-medication">Prescribe Medication</option>
-              </Select>
-            </div>
-            {selectedAction === 'schedule-appointment' && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="date">Appointment Date</Label>
-                  <Input id="date" name="date" type="date" value={appointmentData.date} onChange={handleInputChange} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="time">Preferred Time</Label>
-                  <Select id="time" name="time" value={appointmentData.time} onChange={handleInputChange} disabled={availableSlots.length === 0}>
-                    <option value="">Choose a time slot</option>
-                    {availableSlots.map((slot) => (
-                      <option key={slot} value={slot}>{slot}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reason">Reason for Visit</Label>
-                  <Input id="reason" name="reason" value={appointmentData.reason} onChange={handleInputChange} placeholder="Brief description of your concern" />
-                </div>
-              </>
-            )}
-            {selectedAction === 'prescribe-medication' && (
-              <>
-                {existingPrescriptions.length > 0 && (
-                  <div className="space-y-2 mb-4">
-                    <Label>Existing Prescriptions</Label>
-                    {existingPrescriptions.map((prescription) => (
-                      <div key={prescription._id} className="flex items-center justify-between bg-gray-100 p-2 rounded">
-                        <span>{prescription.medication} - {prescription.dosage} - {prescription.frequency}</span>
-                        <div>
-                          <Button type="button" onClick={() => handleEditPrescription(prescription)} variant="outline" size="sm" className="mr-2">Edit</Button>
-                          <Button onClick={() => handleDeletePrescription(prescription._id)} variant="outline" size="sm">Delete</Button>
-                        </div>
+      <Card className="max-w-2xl mx-auto p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-6">Patient Management</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Patient</label>
+            <select name="patientId" value={appointmentData.patientId} onChange={handleInputChange}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+              <option value="">Choose a patient</option>
+              {patients.map((p) => <option key={p._id} value={p._id}>{p.firstName} {p.lastName}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
+            <select name="action" value={selectedAction} onChange={handleInputChange}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+              <option value="">Choose an action</option>
+              <option value="schedule-appointment">Schedule Appointment</option>
+              <option value="prescribe-medication">Prescribe Medication</option>
+            </select>
+          </div>
+          {selectedAction === 'schedule-appointment' && (
+            <>
+              <input type="date" name="date" value={appointmentData.date} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <select name="time" value={appointmentData.time} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" disabled={availableSlots.length === 0}>
+                <option value="">Choose time</option>
+                {availableSlots.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input name="reason" placeholder="Reason" value={appointmentData.reason} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </>
+          )}
+          {selectedAction === 'prescribe-medication' && (
+            <>
+              {existingPrescriptions.length > 0 && (
+                <div className="space-y-1">
+                  {existingPrescriptions.map((rx) => (
+                    <div key={rx._id} className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2 text-xs">
+                      <span>{rx.medication} · {rx.dosage} · {rx.frequency}</span>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setAppointmentData((p) => ({ ...p, prescriptionId: rx._id, medication: rx.medication, dosage: rx.dosage, frequency: rx.frequency })); setSelectedAction('prescribe-medication'); }} className="text-blue-600 hover:underline">Edit</button>
+                        <button type="button" onClick={async () => { await fetch(`${API_BASE_URL}/api/doctor/prescriptions/${rx._id}`, { method: 'DELETE', headers }); fetchExistingPrescriptions(appointmentData.patientId); addToast('Deleted.', 'info'); }} className="text-red-500 hover:underline">Del</button>
                       </div>
-                    ))}
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="medication">Medication</Label>
-                  <Input id="medication" name="medication" value={appointmentData.medication || ''} onChange={handleInputChange} placeholder="Medication name" />
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dosage">Dosage</Label>
-                  <Input id="dosage" name="dosage" value={appointmentData.dosage || ''} onChange={handleInputChange} placeholder="Dosage" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="frequency">Frequency</Label>
-                  <Input id="frequency" name="frequency" value={appointmentData.frequency || ''} onChange={handleInputChange} placeholder="Frequency" />
-                </div>
-              </>
-            )}
-            <Button type="submit" className="ml-auto">
-              {selectedAction === 'prescribe-medication' ? (appointmentData.prescriptionId ? 'Update Prescription' : 'Prescribe Medication') : 'Schedule Appointment'}
-            </Button>
-          </form>
-        </CardContent>
+              )}
+              <input name="medication" placeholder="Medication name" value={appointmentData.medication || ''} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input name="dosage" placeholder="Dosage" value={appointmentData.dosage || ''} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input name="frequency" placeholder="Frequency" value={appointmentData.frequency || ''} onChange={handleInputChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </>
+          )}
+          <Button type="submit" className="w-full">
+            {selectedAction === 'prescribe-medication' ? 'Save Prescription' : 'Schedule Appointment'}
+          </Button>
+        </form>
       </Card>
     );
   };
 
+  const renderProfile = () => (
+    <Card className="max-w-lg mx-auto p-6">
+      <h2 className="text-xl font-bold mb-4">Doctor Profile</h2>
+      <div className="space-y-3 text-sm">
+        <div className="flex justify-between"><span className="text-gray-500">Name</span><span>Dr. {doctorInfo?.firstName} {doctorInfo?.lastName}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Specialty</span><span>{doctorInfo?.specialty}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Qualification</span><span>{doctorInfo?.qualification || 'MBBS'}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Experience</span><span>{doctorInfo?.experience || 0} years</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">License</span><span>{doctorInfo?.licenseNumber}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{doctorInfo?.phoneNumber}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Slot Duration</span><Badge type="info">{doctorInfo?.slotDurationMinutes || 30} min</Badge></div>
+      </div>
+    </Card>
+  );
+
+  const navItems = [
+    { id: 'Dashboard', icon: Home, label: 'Dashboard' },
+    { id: 'Patient Management', icon: Users, label: 'Patients' },
+    { id: 'Profile', icon: UserCircle, label: 'Profile' },
+  ];
+
   return (
-    <div className="min-h-screen bg-blue-600">
-      <header className="bg-white p-4 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <Hospital className="h-6 w-6 text-blue-600" />
-          <span className="font-bold text-3xl">VIT MEDS</span>
+    <div className="min-h-screen bg-gray-50">
+      {toasts.map((t) => <Toast key={t.id} {...t} onClose={() => removeToast(t.id)} />)}
+      {renderVisitModal()}
+
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Hospital size={24} className="text-blue-600" />
+            <span className="font-bold text-xl text-gray-900">Medicare</span>
+            <span className="hidden sm:inline text-sm text-gray-400">/ Doctor Portal</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600 hidden sm:block">Dr. {doctorInfo?.firstName} {doctorInfo?.lastName}</span>
+            <Button variant="outline" size="sm" onClick={() => { localStorage.removeItem('token'); navigate('/'); }}>Sign Out</Button>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => navigate('/')}>Sign Out</Button>
       </header>
-      <nav className="bg-blue-700 text-white p-4">
-        <ul className="flex space-x-4 justify-center">
-          <li>
-            <Button
-              variant={activeTab === 'Dashboard' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Dashboard' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Dashboard')}
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Dashboard
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Profile' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Profile' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Profile')}
-            >
-              <UserCircle className="w-4 h-4 mr-2" />
-              Profile
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Patient Management' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Patient Management' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Patient Management')}
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Patient Management
-            </Button>
-          </li>
-        </ul>
-      </nav>
-      <main className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold text-white mb-8">Welcome, Dr. {doctorInfo?.firstName} {doctorInfo?.lastName}</h1>
-        {activeTab === 'Dashboard' && renderDashboard()}
-        {activeTab === 'Profile' && renderProfile()}
-        {activeTab === 'Patient Management' && renderPatientManagement()}
-      </main>
+
+      <div className="max-w-6xl mx-auto px-4 py-6 flex gap-6">
+        <aside className="hidden md:block w-48 shrink-0">
+          <nav className="space-y-1">
+            {navItems.map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === id ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                <Icon size={18} /> {label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="flex-1">
+          <h1 className="text-2xl font-bold text-gray-900 mb-6">
+            {activeTab === 'Dashboard' ? `Welcome, Dr. ${doctorInfo?.firstName || ''}` : activeTab}
+          </h1>
+          {activeTab === 'Dashboard' && renderDashboard()}
+          {activeTab === 'Patient Management' && renderPatientManagement()}
+          {activeTab === 'Profile' && renderProfile()}
+        </main>
+      </div>
     </div>
   );
 }

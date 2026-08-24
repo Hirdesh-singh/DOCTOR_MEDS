@@ -2,7 +2,9 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import Admin from './models/Admin.js';
 
-mongoose.connect('mongodb://localhost:27017/User', {
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/User';
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })

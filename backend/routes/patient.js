@@ -4,21 +4,17 @@ import jwt from 'jsonwebtoken';
 import Appointment from '../models/Appointment.js';
 import Doctor from '../models/Doctor.js';
 import Prescription from '../models/Prescription.js';
+import Notification from '../models/Notification.js';
 
 const router = express.Router();
 
 const auth = (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
-
-  if (!token) {
-    return res.status(401).send({ error: 'No token provided' });
-  }
-
+  if (!token) return res.status(401).send({ error: 'No token provided' });
   try {
-    const decoded = jwt.verify(token, 'your_jwt_secret');
-    req.user = decoded;
+    req.user = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_change_me');
     next();
-  } catch (error) {
+  } catch {
     res.status(401).send({ error: 'Invalid token' });
   }
 };
@@ -26,112 +22,111 @@ const auth = (req, res, next) => {
 router.get('/profile', auth, async (req, res) => {
   try {
     const patient = await Patient.findById(req.user.id).select('-password');
-    if (!patient) {
-      return res.status(404).send({ error: 'Patient not found' });
-    }
+    if (!patient) return res.status(404).send({ error: 'Patient not found' });
     res.json(patient);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ error: 'Server error' });
-  }
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
 router.put('/profile', auth, async (req, res) => {
   try {
-    const { firstName, lastName, email } = req.body;
+    const { firstName, lastName, email, phone } = req.body;
     const patient = await Patient.findById(req.user.id);
-    if (!patient) {
-      return res.status(404).send({ error: 'Patient not found' });
-    }
-    patient.firstName = firstName;
-    patient.lastName = lastName;
-    patient.email = email;
+    if (!patient) return res.status(404).send({ error: 'Patient not found' });
+    Object.assign(patient, { firstName, lastName, email, phone });
     await patient.save();
-    const patientWithoutPassword = patient.toObject();
-    delete patientWithoutPassword.password;
-    res.json(patientWithoutPassword);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ error: 'Server error' });
-  }
+    const p = patient.toObject(); delete p.password;
+    res.json(p);
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
+// ─── Book appointment (legacy route — kept for backward compat) ───────────────
 router.post('/book-appointment', auth, async (req, res) => {
   try {
-    const { doctorId, date, time, reason } = req.body;
+    const { doctorId, date, time, reason, symptoms } = req.body;
     const appointment = new Appointment({
       patientId: req.user.id,
       doctorId,
       date,
+      startTime: time,
+      endTime: time,
       time,
-      reason
+      reason,
+      symptoms: symptoms || {},
     });
     await appointment.save();
     res.status(201).json({ message: 'Appointment booked successfully', appointment });
   } catch (error) {
-    console.error(error);
+    if (error.code === 11000)
+      return res.status(409).json({ error: 'This slot is already booked. Please choose another time.' });
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── Available Slots (legacy — now delegates to slotService) ─────────────────
 router.get('/available-slots', auth, async (req, res) => {
   try {
     const { doctorId, date } = req.query;
-    const bookedAppointments = await Appointment.find({ doctorId, date });
-    const bookedTimes = bookedAppointments.map(app => app.time);
-    const allTimeSlots = ['10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM'];
-    const availableSlots = allTimeSlots.filter(slot => !bookedTimes.includes(slot));
-    res.json(availableSlots);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ error: 'Server error' });
-  }
+    const doctor = await Doctor.findById(doctorId);
+    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
+
+    const { getAvailableSlots } = await import('../services/slotService.js');
+    const slots = await getAvailableSlots(doctor, date);
+    // Return in legacy format for backward compat
+    res.json(slots.map((s) => `${s.startTime}–${s.endTime}`));
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
+// ─── Patient's all appointments ───────────────────────────────────────────────
 router.get('/appointments', auth, async (req, res) => {
   try {
-    const patientId = req.user.id;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);  // Set to start of day
-    
-    const appointments = await Appointment.find({
-      patientId,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) // End of day
-      }
-    })
-      .populate('doctorId', 'firstName lastName')
-      .sort({ time: 1 });
-    
+    const { status, all } = req.query;
+    const filter = { patientId: req.user.id };
+
+    if (status) {
+      filter.status = status;
+    } else if (!all) {
+      // Default: upcoming only
+      const today = new Date().toISOString().split('T')[0];
+      filter.date = { $gte: today };
+    }
+
+    const appointments = await Appointment.find(filter)
+      .populate('doctorId', 'firstName lastName specialty')
+      .sort({ date: 1, startTime: 1 });
     res.json(appointments);
-  } catch (error) {
-    console.error('Error fetching appointments:', error);
-    res.status(500).send({ error: 'Server error' });
-  }
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
+// ─── Patient's care team ─────────────────────────────────────────────────────
 router.get('/care-team', auth, async (req, res) => {
   try {
     const patientId = req.user.id;
-    const appointments = await Appointment.find({ patientId }).distinct('doctorId');
-    const careTeam = await Doctor.find({ _id: { $in: appointments } }).select('firstName lastName specialty');
+    const doctorIds = await Appointment.find({ patientId }).distinct('doctorId');
+    const careTeam = await Doctor.find({ _id: { $in: doctorIds } }).select(
+      'firstName lastName specialty qualification experience'
+    );
     res.json(careTeam);
-  } catch (error) {
-    console.error('Error fetching care team:', error);
-    res.status(500).send({ error: 'Server error' });
-  }
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
+// ─── Patient's prescriptions ──────────────────────────────────────────────────
 router.get('/prescriptions', auth, async (req, res) => {
   try {
-    const patientId = req.user.id;
-    const prescriptions = await Prescription.find({ patientId }).populate('doctorId', 'firstName lastName');
+    const prescriptions = await Prescription.find({ patientId: req.user.id })
+      .populate('doctorId', 'firstName lastName')
+      .sort({ createdAt: -1 });
     res.json(prescriptions);
-  } catch (error) {
-    console.error('Error fetching prescriptions:', error);
-    res.status(500).send({ error: 'Server error' });
-  }
+  } catch { res.status(500).send({ error: 'Server error' }); }
+});
+
+// ─── Patient's notifications ──────────────────────────────────────────────────
+router.get('/notifications', auth, async (req, res) => {
+  try {
+    const notifications = await Notification.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(notifications);
+  } catch { res.status(500).send({ error: 'Server error' }); }
 });
 
 export default router;

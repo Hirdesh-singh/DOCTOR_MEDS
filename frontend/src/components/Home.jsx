@@ -142,13 +142,13 @@ const Home = () => {
       {/* Phone Number */}
       <div className="flex items-center">
         <span className="mr-2">📞</span>
-        <span>(+91) 93698-15998</span>
+        <span>(+91) 9084130259</span>
       </div>
 
       {/* Email */}
       <div className="flex items-center">
         <span className="mr-2">📧</span>
-        <span>krishnam@gmail.com</span>
+        <span>22hirdesh@gmail.com</span>
       </div>
 
       {/* Location */}

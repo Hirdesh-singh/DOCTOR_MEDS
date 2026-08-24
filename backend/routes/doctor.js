@@ -1,247 +1,228 @@
 import express from 'express';
 import Doctor from '../models/Doctor.js';
-import jwt from 'jsonwebtoken';
 import Appointment from '../models/Appointment.js';
-import User from '../models/User.js';
 import Prescription from '../models/Prescription.js';
+import User from '../models/User.js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// ─── Legacy inline auth for backward compat ───────────────────────────────────
 const auth = (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
-
-  if (!token) {
-    return res.status(401).send({ error: 'No token provided' });
-  }
-
+  if (!token) return res.status(401).send({ error: 'No token provided' });
   try {
-    const decoded = jwt.verify(token, 'your_jwt_secret');
-    req.user = decoded;
+    req.user = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_change_me');
     next();
-  } catch (error) {
+  } catch {
     res.status(401).send({ error: 'Invalid token' });
   }
 };
 
+// ─── GET /api/doctor/all — Public: list all active doctors ───────────────────
+router.get('/all', async (req, res) => {
+  try {
+    const { specialty, search } = req.query;
+    const filter = { isActive: { $ne: false } };
+
+    if (specialty) filter.specialty = { $regex: specialty, $options: 'i' };
+    if (search) {
+      filter.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName:  { $regex: search, $options: 'i' } },
+        { specialty: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const doctors = await Doctor.find(filter).select(
+      'firstName lastName specialty qualification experience consultationFee phoneNumber workingHours slotDurationMinutes leaveDays'
+    );
+    res.json(doctors);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── GET /api/doctor/:id — Public: single doctor ─────────────────────────────
+router.get('/:id', async (req, res) => {
+  try {
+    const doctor = await Doctor.findById(req.params.id).select('-password');
+    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
+    res.json(doctor);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── GET /api/doctor/profile — Doctor's own profile ──────────────────────────
 router.get('/profile', auth, async (req, res) => {
   try {
     const doctor = await Doctor.findById(req.user.id).select('-password');
-    if (!doctor) {
-      return res.status(404).send({ error: 'Doctor not found' });
-    }
+    if (!doctor) return res.status(404).send({ error: 'Doctor not found' });
     res.json(doctor);
   } catch (error) {
-    console.error(error);
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── PUT /api/doctor/profile ──────────────────────────────────────────────────
 router.put('/profile', auth, async (req, res) => {
   try {
-    const { firstName, lastName, email, specialty, licenseNumber, phoneNumber } = req.body;
+    const { firstName, lastName, email, specialty, licenseNumber, phoneNumber, qualification, experience, consultationFee } = req.body;
     const doctor = await Doctor.findById(req.user.id);
-    if (!doctor) {
-      return res.status(404).send({ error: 'Doctor not found' });
-    }
-    doctor.firstName = firstName;
-    doctor.lastName = lastName;
-    doctor.email = email;
-    doctor.specialty = specialty;
-    doctor.licenseNumber = licenseNumber;
-    doctor.phoneNumber = phoneNumber;
+    if (!doctor) return res.status(404).send({ error: 'Doctor not found' });
+
+    Object.assign(doctor, { firstName, lastName, email, specialty, licenseNumber, phoneNumber, qualification, experience, consultationFee });
     await doctor.save();
-    const doctorWithoutPassword = doctor.toObject();
-    delete doctorWithoutPassword.password;
-    res.json(doctorWithoutPassword);
+
+    const d = doctor.toObject();
+    delete d.password;
+    res.json(d);
   } catch (error) {
-    console.error(error);
     res.status(500).send({ error: 'Server error' });
   }
 });
 
-router.get('/all', async (req, res) => {
-  try {
-    const doctors = await Doctor.find().select('firstName lastName specialty');
-    res.json(doctors);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ error: 'Server error' });
-  }
-});
-
+// ─── GET /api/doctor/patients-with-appointments ───────────────────────────────
 router.get('/patients-with-appointments', auth, async (req, res) => {
   try {
     const doctorId = req.user.id;
     const appointments = await Appointment.find({ doctorId }).sort({ date: 1 });
-    const patientIds = [...new Set(appointments.map(app => app.patientId.toString()))];
-
+    const patientIds = [...new Set(appointments.map((a) => a.patientId.toString()))];
     const patients = await User.find({ _id: { $in: patientIds }, role: 'patient' });
 
-    const patientsWithAppointments = patients.map(patient => {
-      const patientAppointments = appointments.filter(app => app.patientId.toString() === patient._id.toString());
-      const lastVisit = patientAppointments.find(app => new Date(app.date) < new Date());
-      const nextAppointment = patientAppointments.find(app => new Date(app.date) >= new Date());
-
-      return {
-        ...patient.toObject(),
-        lastVisit: lastVisit ? lastVisit.date : null,
-        nextAppointment: nextAppointment ? nextAppointment.date : null
-      };
+    const result = patients.map((patient) => {
+      const patientApps = appointments.filter((a) => a.patientId.toString() === patient._id.toString());
+      const today = new Date().toISOString().split('T')[0];
+      const lastVisit = patientApps.filter((a) => a.date < today).pop();
+      const nextAppt  = patientApps.find((a) => a.date >= today && ['CONFIRMED', 'HELD'].includes(a.status));
+      return { ...patient.toObject(), lastVisit: lastVisit?.date || null, nextAppointment: nextAppt?.date || null };
     });
 
-    res.json(patientsWithAppointments);
-  } catch (error) {
-    console.error('Error fetching patients with appointments:', error);
+    res.json(result);
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── GET /api/doctor/available-slots (legacy endpoint) ───────────────────────
 router.get('/available-slots', auth, async (req, res) => {
   try {
-    const { patientId, date } = req.query;
-    const doctorId = req.user.id; // Assuming the doctor is making the request
+    const { date } = req.query;
+    const doctorId = req.user.id;
+    const doctor = await Doctor.findById(doctorId);
+    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
 
-    // Fetch booked appointments for the given doctor and date
-    const bookedAppointments = await Appointment.find({ doctorId, date });
-    const bookedTimes = bookedAppointments.map(app => app.time);
-
-    // Define all possible time slots
-    const allTimeSlots = ['10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM'];
-
-    // Filter out the booked time slots
-    const availableSlots = allTimeSlots.filter(slot => !bookedTimes.includes(slot));
-
-    res.json(availableSlots);
-  } catch (error) {
-    console.error('Error fetching available slots:', error);
+    const { getAvailableSlots } = await import('../services/slotService.js');
+    const slots = await getAvailableSlots(doctor, date || new Date().toISOString().split('T')[0]);
+    res.json(slots.map((s) => `${s.startTime}–${s.endTime}`));
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── POST /api/doctor/schedule-appointment ────────────────────────────────────
 router.post('/schedule-appointment', auth, async (req, res) => {
   try {
     const { patientId, date, time, reason } = req.body;
-    const doctorId = req.user.id; // Assuming the doctor is making the request
-
     const appointment = new Appointment({
       patientId,
-      doctorId,
+      doctorId: req.user.id,
       date,
+      startTime: time,
+      endTime: time,
       time,
-      reason
+      reason,
     });
-
     await appointment.save();
     res.status(201).json({ message: 'Appointment scheduled successfully', appointment });
   } catch (error) {
-    console.error('Error scheduling appointment:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ error: 'This slot is already booked.' });
+    }
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── Prescriptions (doctor-facing) ───────────────────────────────────────────
 router.post('/prescribe-medication', auth, async (req, res) => {
   try {
-    const { patientId, medication, dosage, frequency } = req.body;
-    const doctorId = req.user.id; // Assuming the doctor is making the request
-
-    console.log('Request body:', req.body);
-    console.log('Doctor ID:', doctorId);
-
+    const { patientId, medication, dosage, frequency, medicines, appointmentId } = req.body;
     const prescription = new Prescription({
       patientId,
-      doctorId,
+      doctorId: req.user.id,
+      appointmentId,
       medication,
       dosage,
-      frequency
+      frequency,
+      medicines: medicines || [],
     });
-
-    const savedPrescription = await prescription.save();
-    console.log('Saved prescription:', savedPrescription);
-
-    res.status(201).json({ message: 'Medication prescribed successfully', prescription: savedPrescription });
+    const saved = await prescription.save();
+    res.status(201).json({ message: 'Medication prescribed successfully', prescription: saved });
   } catch (error) {
-    console.error('Error prescribing medication:', error);
     res.status(500).send({ error: 'Server error' });
   }
 });
 
-// Get all prescriptions
 router.get('/prescriptions', auth, async (req, res) => {
   try {
-    const prescriptions = await Prescription.find({ doctorId: req.user.id });
+    const prescriptions = await Prescription.find({ doctorId: req.user.id })
+      .populate('patientId', 'firstName lastName');
     res.json(prescriptions);
-  } catch (error) {
-    console.error('Error fetching prescriptions:', error);
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });
 
-// Update a prescription
 router.put('/prescriptions/:id', auth, async (req, res) => {
   try {
-    const { medication, dosage, frequency } = req.body;
+    const { medication, dosage, frequency, medicines } = req.body;
     const prescription = await Prescription.findOneAndUpdate(
       { _id: req.params.id, doctorId: req.user.id },
-      { medication, dosage, frequency },
+      { medication, dosage, frequency, medicines },
       { new: true }
     );
-    if (!prescription) {
-      return res.status(404).send({ error: 'Prescription not found' });
-    }
+    if (!prescription) return res.status(404).send({ error: 'Prescription not found' });
     res.json(prescription);
-  } catch (error) {
-    console.error('Error updating prescription:', error);
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });
 
-// Delete a prescription
 router.delete('/prescriptions/:id', auth, async (req, res) => {
   try {
     const prescription = await Prescription.findOneAndDelete({ _id: req.params.id, doctorId: req.user.id });
-    if (!prescription) {
-      return res.status(404).send({ error: 'Prescription not found' });
-    }
+    if (!prescription) return res.status(404).send({ error: 'Prescription not found' });
     res.json({ message: 'Prescription deleted successfully' });
   } catch (error) {
-    console.error('Error deleting prescription:', error);
     res.status(500).send({ error: 'Server error', details: error.message });
   }
 });
 
-// Get all prescriptions by patient ID
 router.get('/prescriptions/:patientId', auth, async (req, res) => {
   try {
-    const prescriptions = await Prescription.find({ 
-      doctorId: req.user.id,
-      patientId: req.params.patientId
-    });
+    const prescriptions = await Prescription.find({ doctorId: req.user.id, patientId: req.params.patientId });
     res.json(prescriptions);
-  } catch (error) {
-    console.error('Error fetching prescriptions:', error);
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });
 
+// ─── GET /api/doctor/appointments — Doctor's today's schedule ─────────────────
 router.get('/appointments', auth, async (req, res) => {
   try {
-    const doctorId = req.user.id;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);  // Set to start of day
-    
+    const today = new Date().toISOString().split('T')[0];
     const appointments = await Appointment.find({
-      doctorId,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) // End of day
-      }
+      doctorId: req.user.id,
+      date: today,
+      status: { $in: ['CONFIRMED', 'HELD', 'COMPLETED'] },
     })
-      .populate('patientId', 'firstName lastName')
-      .sort({ time: 1 });
-    
+      .populate('patientId', 'firstName lastName email')
+      .sort({ startTime: 1 });
     res.json(appointments);
-  } catch (error) {
-    console.error('Error fetching appointments:', error);
+  } catch {
     res.status(500).send({ error: 'Server error' });
   }
 });

@@ -1,764 +1,580 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, FileText, Users, ChevronDown, Home, UserCircle, Calendar as Eye, EyeOff, Hospital, Stethoscope, Activity, DollarSign, UserPlus, ShieldCheck } from 'lucide-react';
+import {
+  Calendar, FileText, Users, Home, UserCircle, Hospital, Stethoscope,
+  Activity, UserPlus, ShieldCheck, Eye, EyeOff, X, AlertTriangle,
+  Clock, Trash2, PlusCircle, Bell, ChevronDown
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-
 import { API_BASE_URL } from '../config.js';
 
-const Button = ({ children, variant = 'primary', className = '', ...props }) => (
-  <button
-    className={`inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-      variant === 'primary'
-        ? 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-        : variant === 'outline'
-        ? 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-        : 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-    } ${className}`}
-    {...props}
-  >
-    {children}
-  </button>
-);
+// ─── Shared Components ────────────────────────────────────────────────────────
+const Button = ({ children, variant = 'primary', size = 'md', className = '', disabled, ...props }) => {
+  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed';
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-3 text-base' };
+  const variants = {
+    primary: 'bg-blue-600 text-white hover:bg-blue-700',
+    danger: 'bg-red-600 text-white hover:bg-red-700',
+    outline: 'border border-gray-300 text-gray-700 hover:bg-gray-50',
+    ghost: 'text-gray-600 hover:bg-gray-100',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+  };
+  return <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled} {...props}>{children}</button>;
+};
 
 const Card = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-lg shadow-md ${className}`}>
-    {children}
+  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>{children}</div>
+);
+
+const Badge = ({ children, type = 'default' }) => {
+  const styles = {
+    default: 'bg-gray-100 text-gray-700', info: 'bg-blue-100 text-blue-700',
+    success: 'bg-emerald-100 text-emerald-700', warning: 'bg-amber-100 text-amber-700',
+    danger: 'bg-red-100 text-red-700',
+  };
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[type] || styles.default}`}>{children}</span>;
+};
+
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, []);
+  const styles = { success: 'bg-emerald-600', error: 'bg-red-600', info: 'bg-blue-600', warning: 'bg-amber-600' };
+  return (
+    <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg text-white shadow-lg ${styles[type] || styles.info} max-w-sm`}>
+      <span className="text-sm">{message}</span>
+      <button onClick={onClose}><X size={16} /></button>
+    </div>
+  );
+};
+
+const Input = ({ label, ...props }) => (
+  <div>
+    {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+    <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" {...props} />
   </div>
-);
-
-const CardHeader = ({ children, icon: Icon }) => (
-  <div className="px-4 py-5 border-b border-gray-200 sm:px-6 flex items-center justify-between">
-    {children}
-    {Icon && <Icon className="h-5 w-5 text-blue-600 ml-2" />}
-  </div>
-);
-
-const CardTitle = ({ children }) => (
-  <h3 className="text-lg leading-6 font-medium text-gray-900">{children}</h3>
-);
-
-const CardContent = ({ children }) => (
-  <div className="px-4 py-5 sm:p-6">{children}</div>
-);
-
-const CardFooter = ({ children }) => (
-  <div className="px-4 py-4 sm:px-6">{children}</div>
-);
-
-const Input = ({ ...props }) => (
-  <input
-    className="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md px-1 h-6"
-    {...props}
-  />
-);
-
-const Label = ({ children, htmlFor }) => (
-  <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700">
-    {children}
-  </label>
-);
-
-const Select = ({ children, ...props }) => (
-  <select
-    className="mt-1 block w-full pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-    {...props}
-  >
-    {children}
-  </select>
 );
 
 export default function AdminDashboard() {
-  const [showDoctors, setShowDoctors] = useState(false);
-  const [showPatients, setShowPatients] = useState(false);
   const [activeTab, setActiveTab] = useState('Dashboard');
-  const [isEditing, setIsEditing] = useState(false);
   const [adminInfo, setAdminInfo] = useState(null);
-  const [editedInfo, setEditedInfo] = useState(null);
-  const [doctorData, setDoctorData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    specialty: '',
-    licenseNumber: '',
-    phoneNumber: '',
-    password: ''
-  });
-  const [adminData, setAdminData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-  const [showDoctorPassword, setShowDoctorPassword] = useState(false);
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [totalDoctors, setTotalDoctors] = useState(0);
   const [totalPatients, setTotalPatients] = useState(0);
   const [doctorOverview, setDoctorOverview] = useState([]);
   const [patientOverview, setPatientOverview] = useState([]);
-  const [hospitalCapacity] = useState(10000);
+  const [allDoctors, setAllDoctors] = useState([]);
+  const [allAppointments, setAllAppointments] = useState([]);
+  const [failedNotifications, setFailedNotifications] = useState([]);
+  const [toasts, setToasts] = useState([]);
+
+  // Doctor leave
+  const [selectedDoctorId, setSelectedDoctorId] = useState('');
+  const [leaveDate, setLeaveDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [doctorLeaves, setDoctorLeaves] = useState([]);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+
+  // Slot duration
+  const [slotDoctorId, setSlotDoctorId] = useState('');
+  const [slotDuration, setSlotDuration] = useState(30);
+
+  // Add doctor form
+  const [doctorData, setDoctorData] = useState({ firstName: '', lastName: '', email: '', specialty: '', licenseNumber: '', phoneNumber: '', password: '', qualification: 'MBBS', experience: 0, consultationFee: 0 });
+  const [showPassword, setShowPassword] = useState(false);
+
   const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  const addToast = (msg, type = 'info') => {
+    const id = Date.now();
+    setToasts((p) => [...p, { id, message: msg, type }]);
+  };
+  const removeToast = (id) => setToasts((p) => p.filter((t) => t.id !== id));
 
   useEffect(() => {
+    if (!token) { navigate('/login'); return; }
     fetchAdminProfile();
     fetchTotalDoctors();
     fetchTotalPatients();
     fetchDoctorOverview();
     fetchPatientOverview();
+    fetchAllDoctors();
+    fetchAllAppointments();
+    fetchFailedNotifications();
   }, []);
+
+  useEffect(() => {
+    if (selectedDoctorId) fetchDoctorLeaves(selectedDoctorId);
+  }, [selectedDoctorId]);
 
   const fetchAdminProfile = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        // Handle not authenticated case
-        return;
-      }
-      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAdminInfo(data);
-        setEditedInfo(data);
-      } else {
-        // Handle error
-        console.error('Failed to fetch admin profile');
-      }
-    } catch (error) {
-      console.error('Error fetching admin profile:', error);
-    }
+      const r = await fetch(`${API_BASE_URL}/api/admin/profile`, { headers });
+      if (r.ok) { const d = await r.json(); setAdminInfo(d); }
+      else { navigate('/login'); }
+    } catch {}
+  };
+
+  const fetchAllDoctors = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/admin/doctors`, { headers });
+      if (r.ok) setAllDoctors(await r.json());
+    } catch {}
   };
 
   const fetchTotalDoctors = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/admin/total-doctors`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setTotalDoctors(data.totalDoctors);
-      } else {
-        console.error('Failed to fetch total doctors');
-      }
-    } catch (error) {
-      console.error('Error fetching total doctors:', error);
-    }
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/total-doctors`, { headers }); if (r.ok) { const d = await r.json(); setTotalDoctors(d.totalDoctors); } } catch {}
   };
-
   const fetchTotalPatients = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/admin/total-patients`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setTotalPatients(data.totalPatients);
-      } else {
-        console.error('Failed to fetch total patients');
-      }
-    } catch (error) {
-      console.error('Error fetching total patients:', error);
-    }
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/total-patients`, { headers }); if (r.ok) { const d = await r.json(); setTotalPatients(d.totalPatients); } } catch {}
   };
-
   const fetchDoctorOverview = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/admin/doctor-overview`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDoctorOverview(data);
-      } else {
-        console.error('Failed to fetch doctor overview');
-      }
-    } catch (error) {
-      console.error('Error fetching doctor overview:', error);
-    }
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/doctor-overview`, { headers }); if (r.ok) setDoctorOverview(await r.json()); } catch {}
   };
-
   const fetchPatientOverview = async () => {
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/patient-overview`, { headers }); if (r.ok) setPatientOverview(await r.json()); } catch {}
+  };
+  const fetchAllAppointments = async () => {
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/appointments`, { headers }); if (r.ok) setAllAppointments(await r.json()); } catch {}
+  };
+  const fetchFailedNotifications = async () => {
+    try { const r = await fetch(`${API_BASE_URL}/api/admin/notifications/failed`, { headers }); if (r.ok) setFailedNotifications(await r.json()); } catch {}
+  };
+
+  const fetchDoctorLeaves = async (doctorId) => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        return;
-      }
-      const response = await fetch(`${API_BASE_URL}/api/admin/patient-overview`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPatientOverview(data);
-      } else {
-        console.error('Failed to fetch patient overview');
-      }
-    } catch (error) {
-      console.error('Error fetching patient overview:', error);
-    }
+      const r = await fetch(`${API_BASE_URL}/api/admin/doctors/${doctorId}/leave`, { headers });
+      if (r.ok) setDoctorLeaves(await r.json());
+    } catch {}
   };
 
+  // ─── Dashboard ─────────────────────────────────────────────────────────────────
   const renderDashboard = () => {
-    const occupancyRate = ((totalPatients / hospitalCapacity) * 100).toFixed(2);
+    const occupancy = totalPatients > 0 ? Math.min(((totalPatients / 10000) * 100).toFixed(1), 100) : 0;
     return (
-      <>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardHeader icon={Stethoscope}>
-              <CardTitle className="text-sm font-medium">Total Doctors</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalDoctors}</div>
-              <p className="text-xs text-gray-500">Active medical staff</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader icon={Users}>
-              <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalPatients}</div>
-              <p className="text-xs text-gray-500">Currently admitted</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader icon={Activity}>
-              <CardTitle className="text-sm font-medium">Hospital Occupancy</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{occupancyRate}%</div>
-              <p className="text-xs text-gray-500">Bed occupancy rate</p>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader icon={Stethoscope}>
-              <CardTitle className="text-sm font-medium">Doctor Overview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{doctorOverview.length}</div>
-              <p className="text-xs text-gray-500">Total doctors on staff</p>
-            </CardContent>
-            <CardFooter className="p-2">
-              <Button 
-                variant="ghost" 
-                className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-                onClick={() => setShowDoctors(!showDoctors)}
-              >
-                {showDoctors ? "Hide" : "View All"} Doctors
-                <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showDoctors ? "rotate-180" : ""}`} />
-              </Button>
-            </CardFooter>
-            {showDoctors && (
-              <div className="px-4 pb-4">
-                {doctorOverview.map((doctor, index) => (
-                  <div key={index} className="flex justify-between items-center py-2 border-t">
-                    <div>
-                      <p className="text-sm font-medium">{doctor.name}</p>
-                      <p className="text-xs text-gray-500">{doctor.specialty}</p>
-                    </div>
-                    <p className="text-sm">{doctor.patients} patients</p>
-                  </div>
-                ))}
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Doctors', value: totalDoctors, icon: Stethoscope, color: 'blue' },
+            { label: 'Patients', value: totalPatients, icon: Users, color: 'emerald' },
+            { label: 'Appointments', value: allAppointments.length, icon: Calendar, color: 'purple' },
+            { label: 'Failed Emails', value: failedNotifications.length, icon: Bell, color: failedNotifications.length > 0 ? 'red' : 'gray' },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <Card key={label} className="p-4">
+              <div className={`w-10 h-10 bg-${color}-100 rounded-lg flex items-center justify-center mb-2`}>
+                <Icon size={20} className={`text-${color}-600`} />
               </div>
-            )}
+              <div className="text-2xl font-bold text-gray-900">{value}</div>
+              <div className="text-xs text-gray-500">{label}</div>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card>
+            <div className="p-4 border-b border-gray-100"><h3 className="font-semibold">Doctor Overview</h3></div>
+            <div className="divide-y divide-gray-50">
+              {doctorOverview.slice(0, 5).map((d, i) => (
+                <div key={i} className="p-3 flex justify-between items-center text-sm">
+                  <div><p className="font-medium">{d.name}</p><p className="text-xs text-gray-500">{d.specialty}</p></div>
+                  <Badge type="info">{d.patients} patients</Badge>
+                </div>
+              ))}
+            </div>
           </Card>
           <Card>
-            <CardHeader icon={Users}>
-              <CardTitle className="text-sm font-medium">Patient Overview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{patientOverview.length}</div>
-              <p className="text-xs text-gray-500">Total admitted patients</p>
-            </CardContent>
-            <CardFooter className="p-2">
-              <Button 
-                variant="ghost" 
-                className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-                onClick={() => setShowPatients(!showPatients)}
-              >
-                {showPatients ? "Hide" : "View All"} Patients
-                <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showPatients ? "rotate-180" : ""}`} />
-              </Button>
-            </CardFooter>
-            {showPatients && (
-              <div className="px-4 pb-4">
-                {patientOverview.map((patient, index) => (
-                  <div key={index} className="py-2 border-t">
-                    <p className="text-sm font-medium">{patient.name}</p>
-                    <p className="text-xs text-gray-500">
-                      Total Appointments: {patient.appointments}
-                    </p>
+            <div className="p-4 border-b border-gray-100"><h3 className="font-semibold">Recent Appointments</h3></div>
+            <div className="divide-y divide-gray-50">
+              {allAppointments.slice(0, 5).map((a) => (
+                <div key={a._id} className="p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium">{a.patientId?.firstName} {a.patientId?.lastName}</span>
+                    <Badge type={a.status === 'CONFIRMED' ? 'success' : a.status === 'CANCELLED' ? 'danger' : 'default'}>{a.status}</Badge>
                   </div>
-                ))}
-              </div>
-            )}
+                  <p className="text-xs text-gray-500">Dr. {a.doctorId?.firstName} · {a.date}</p>
+                </div>
+              ))}
+            </div>
           </Card>
         </div>
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                <li className="flex items-center space-x-2">
-                  <UserPlus className="h-4 w-4 text-blue-600" />
-                  <span>New doctor onboarded: Dr. Rajeev Saxena</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <Activity className="h-4 w-4 text-blue-600" />
-                  <span>Emergency ward capacity increased by 10 beds</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <DollarSign className="h-4 w-4 text-blue-600" />
-                  <span>Monthly budget report generated</span>
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Upcoming Tasks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                <li className="flex items-center space-x-2">
-                  <Calendar className="h-4 w-4 text-blue-600" />
-                  <span>Staff performance review - Next week</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <FileText className="h-4 w-4 text-blue-600" />
-                  <span>Update hospital policies - Due in 3 days</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <Users className="h-4 w-4 text-blue-600" />
-                  <span>Department heads meeting - Tomorrow, 10:00 AM</span>
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-      </>
+      </div>
     );
   };
 
-  const renderProfile = () => {
-    if (!adminInfo) {
-      return <div>Loading profile...</div>;
-    }
-
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setEditedInfo(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSave = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          navigate('/login');
-          return;
-        }
-        const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/profile`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            firstName: editedInfo.firstName,
-            lastName: editedInfo.lastName,
-            email: editedInfo.email
-          })
-        });
-        if (response.ok) {
-          const updatedAdmin = await response.json();
-          setAdminInfo(updatedAdmin.admin);
-          setIsEditing(false);
-        } else {
-          const errorData = await response.json();
-          alert(`Error: ${errorData.error}`);
-        }
-      } catch (error) {
-        alert('An error occurred. Please try again.');
-      }
-    };
-
-    return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Admin Profile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  name="firstName"
-                  value={isEditing ? editedInfo.firstName : adminInfo.firstName}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  name="lastName"
-                  value={isEditing ? editedInfo.lastName : adminInfo.lastName}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={isEditing ? editedInfo.email : adminInfo.email}
-                onChange={handleInputChange}
-                readOnly={!isEditing}
-              />
-            </div>
-          </form>
-        </CardContent>
-        <CardFooter>
-          {isEditing ? (
-            <>
-              <Button onClick={handleSave} className="mr-2">Save</Button>
-              <Button onClick={() => setIsEditing(false)} variant="outline">Cancel</Button>
-            </>
-          ) : (
-            <Button onClick={() => setIsEditing(true)} className="ml-auto">Edit Profile</Button>
-          )}
-        </CardFooter>
-      </Card>
-    );
-  };
-
+  // ─── Add Doctor ─────────────────────────────────────────────────────────────
   const renderAddDoctor = () => {
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setDoctorData(prev => ({ ...prev, [name]: value }));
-    };
+    const specialties = ['Cardiology', 'Neurology', 'Pediatrics', 'Oncology', 'Orthopedics', 'Dermatology', 'Gynecology', 'Psychiatry', 'General Medicine', 'ENT', 'Ophthalmology', 'Urology'];
 
     const handleSubmit = async (e) => {
       e.preventDefault();
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          alert('You are not authenticated. Please log in.');
-          return;
-        }
-        const response = await fetch(`${API_BASE_URL}/api/admin/add-doctor`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(doctorData)
-        });
-        if (response.ok) {
-          alert('Doctor added successfully');
-          setDoctorData({
-            firstName: '',
-            lastName: '',
-            email: '',
-            specialty: '',
-            licenseNumber: '',
-            phoneNumber: '',
-            password: ''
-          });
-        } else if (response.status === 401) {
-          alert('Your session has expired. Please log in again.');
-          // Redirect to login page or handle re-authentication
+        const r = await fetch(`${API_BASE_URL}/api/admin/add-doctor`, { method: 'POST', headers, body: JSON.stringify(doctorData) });
+        if (r.ok) {
+          addToast('Doctor added successfully!', 'success');
+          setDoctorData({ firstName: '', lastName: '', email: '', specialty: '', licenseNumber: '', phoneNumber: '', password: '', qualification: 'MBBS', experience: 0, consultationFee: 0 });
+          fetchTotalDoctors();
+          fetchAllDoctors();
         } else {
-          const errorData = await response.json();
-          alert(`Error: ${errorData.error}`);
+          const d = await r.json();
+          addToast(d.error || 'Failed to add doctor.', 'error');
         }
-      } catch (error) {
-        alert('An error occurred. Please try again.');
-      }
+      } catch { addToast('Network error.', 'error'); }
     };
 
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Add New Doctor</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" name="firstName" value={doctorData.firstName} onChange={handleInputChange} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" name="lastName" value={doctorData.lastName} onChange={handleInputChange} required />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" value={doctorData.email} onChange={handleInputChange} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="specialty">Specialty</Label>
-              <Select id="specialty" name="specialty" value={doctorData.specialty} onChange={handleInputChange} required>
-                <option value="">Choose a specialty</option>
-                <option value="cardiology">Cardiology</option>
-                <option value="neurology">Neurology</option>
-                <option value="pediatrics">Pediatrics</option>
-                <option value="oncology">Oncology</option>
-                <option value="orthopedics">Orthopedics</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="licenseNumber">License Number</Label>
-              <Input id="licenseNumber" name="licenseNumber" value={doctorData.licenseNumber} onChange={handleInputChange} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phoneNumber">Phone Number</Label>
-              <Input id="phoneNumber" name="phoneNumber" type="tel" value={doctorData.phoneNumber} onChange={handleInputChange} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  name="password"
-                  type={showDoctorPassword ? "text" : "password"}
-                  value={doctorData.password}
-                  onChange={handleInputChange}
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                  onClick={() => setShowDoctorPassword(!showDoctorPassword)}
-                >
-                  {showDoctorPassword ? (
-                    <EyeOff className="h-4 w-4 text-gray-500" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-gray-500" />
-                  )}
-                  <span className="sr-only">
-                    {showDoctorPassword ? "Hide password" : "Show password"}
-                  </span>
-                </Button>
-              </div>
-            </div>
-            <Button type="submit" className="ml-auto">Add Doctor</Button>
-          </form>
-        </CardContent>
+      <Card className="max-w-2xl mx-auto p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-6">Add New Doctor</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="First Name" required value={doctorData.firstName} onChange={(e) => setDoctorData((p) => ({ ...p, firstName: e.target.value }))} />
+            <Input label="Last Name" required value={doctorData.lastName} onChange={(e) => setDoctorData((p) => ({ ...p, lastName: e.target.value }))} />
+          </div>
+          <Input label="Email" type="email" required value={doctorData.email} onChange={(e) => setDoctorData((p) => ({ ...p, email: e.target.value }))} />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Specialty</label>
+            <select required value={doctorData.specialty} onChange={(e) => setDoctorData((p) => ({ ...p, specialty: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+              <option value="">Choose specialty</option>
+              {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Qualification" value={doctorData.qualification} onChange={(e) => setDoctorData((p) => ({ ...p, qualification: e.target.value }))} />
+            <Input label="Experience (years)" type="number" min="0" value={doctorData.experience} onChange={(e) => setDoctorData((p) => ({ ...p, experience: parseInt(e.target.value) || 0 }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="License Number" required value={doctorData.licenseNumber} onChange={(e) => setDoctorData((p) => ({ ...p, licenseNumber: e.target.value }))} />
+            <Input label="Phone Number" type="tel" required value={doctorData.phoneNumber} onChange={(e) => setDoctorData((p) => ({ ...p, phoneNumber: e.target.value }))} />
+          </div>
+          <Input label="Consultation Fee (₹)" type="number" min="0" value={doctorData.consultationFee} onChange={(e) => setDoctorData((p) => ({ ...p, consultationFee: parseInt(e.target.value) || 0 }))} />
+          <div className="relative">
+            <Input label="Password" type={showPassword ? 'text' : 'password'} required value={doctorData.password} onChange={(e) => setDoctorData((p) => ({ ...p, password: e.target.value }))} />
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-7 text-gray-400 hover:text-gray-600">
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <Button type="submit" className="w-full">Add Doctor</Button>
+        </form>
       </Card>
     );
   };
 
-  const renderAddAdmin = () => {
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setAdminData(prev => ({ ...prev, [name]: value }));
-    };
+  // ─── Doctor Leave Management ───────────────────────────────────────────────────
+  const renderLeaveManagement = () => {
+    const today = new Date().toISOString().split('T')[0];
 
-    const handleSubmit = async (e) => {
+    const handleAddLeave = async (e) => {
       e.preventDefault();
-      if (adminData.password !== adminData.confirmPassword) {
-        alert("Passwords don't match");
-        return;
-      }
+      if (!selectedDoctorId || !leaveDate) { addToast('Select doctor and date.', 'error'); return; }
+      setLeaveLoading(true);
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          alert('You are not authenticated. Please log in.');
-          return;
-        }
-        const response = await fetch(`${API_BASE_URL}/api/admin/add-admin`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(adminData)
+        const r = await fetch(`${API_BASE_URL}/api/admin/doctors/${selectedDoctorId}/leave`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ date: leaveDate, reason: leaveReason }),
         });
-        if (response.ok) {
-          alert('Admin added successfully');
-          setAdminData({
-            firstName: '',
-            lastName: '',
-            email: '',
-            password: '',
-            confirmPassword: ''
-          });
-        } else if (response.status === 401) {
-          alert('Your session has expired. Please log in again.');
-          // Redirect to login page or handle re-authentication
+        const data = await r.json();
+        if (r.ok) {
+          addToast(data.message, data.affectedCount > 0 ? 'warning' : 'success');
+          setLeaveDate('');
+          setLeaveReason('');
+          fetchDoctorLeaves(selectedDoctorId);
+          fetchAllAppointments();
+        } else if (r.status === 409) {
+          addToast('Leave already exists for this date.', 'error');
         } else {
-          const errorData = await response.json();
-          alert(`Error: ${errorData.error}`);
+          addToast(data.error || 'Failed.', 'error');
         }
-      } catch (error) {
-        alert('An error occurred. Please try again.');
-      }
+      } catch { addToast('Network error.', 'error'); }
+      setLeaveLoading(false);
+    };
+
+    const handleRemoveLeave = async (date) => {
+      if (!confirm(`Remove leave for ${date}?`)) return;
+      try {
+        await fetch(`${API_BASE_URL}/api/admin/doctors/${selectedDoctorId}/leave/${date}`, { method: 'DELETE', headers });
+        addToast('Leave removed. Slot is now available.', 'success');
+        fetchDoctorLeaves(selectedDoctorId);
+      } catch {}
     };
 
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Add New Admin</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" name="firstName" value={adminData.firstName} onChange={handleInputChange} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" name="lastName" value={adminData.lastName} onChange={handleInputChange} required />
-              </div>
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Card className="p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Clock className="text-blue-600" size={22} /> Doctor Leave Management
+          </h2>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Doctor</label>
+            <select
+              value={selectedDoctorId}
+              onChange={(e) => setSelectedDoctorId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Choose a doctor</option>
+              {allDoctors.map((d) => <option key={d._id} value={d._id}>Dr. {d.firstName} {d.lastName} — {d.specialty}</option>)}
+            </select>
+          </div>
+
+          <form onSubmit={handleAddLeave} className="space-y-3">
+            <Input label="Leave Date" type="date" min={today} value={leaveDate} onChange={(e) => setLeaveDate(e.target.value)} required />
+            <Input label="Reason (optional)" placeholder="e.g. Personal leave, conference" value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} />
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+              ⚠️ Adding leave will CANCEL all confirmed appointments on this date and notify affected patients.
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" value={adminData.email} onChange={handleInputChange} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  name="password"
-                  type={showAdminPassword ? "text" : "password"}
-                  value={adminData.password}
-                  onChange={handleInputChange}
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                  onClick={() => setShowAdminPassword(!showAdminPassword)}
-                >
-                  {showAdminPassword ? (
-                    <EyeOff className="h-4 w-4 text-gray-500" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-gray-500" />
-                  )}
-                  <span className="sr-only">
-                    {showAdminPassword ? "Hide password" : "Show password"}
-                  </span>
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showAdminPassword ? "text" : "password"}
-                  value={adminData.confirmPassword}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-            <Button type="submit" className="ml-auto">Add Admin</Button>
+            <Button type="submit" className="w-full" disabled={!selectedDoctorId || leaveLoading}>
+              {leaveLoading ? 'Processing...' : 'Add Leave & Notify Patients'}
+            </Button>
           </form>
-        </CardContent>
+        </Card>
+
+        {/* Existing Leaves */}
+        {selectedDoctorId && (
+          <Card>
+            <div className="p-4 border-b border-gray-100"><h3 className="font-semibold">Scheduled Leaves</h3></div>
+            <div className="divide-y divide-gray-50">
+              {doctorLeaves.length === 0 ? (
+                <p className="p-4 text-sm text-gray-500">No leave days scheduled.</p>
+              ) : doctorLeaves.map((lv) => (
+                <div key={lv._id} className="p-4 flex justify-between items-center text-sm">
+                  <div>
+                    <p className="font-medium">{lv.date}</p>
+                    {lv.reason && <p className="text-xs text-gray-500">{lv.reason}</p>}
+                  </div>
+                  <Button variant="danger" size="sm" onClick={() => handleRemoveLeave(lv.date)}>
+                    <Trash2 size={14} className="mr-1" /> Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    );
+  };
+
+  // ─── Slot Duration Config ─────────────────────────────────────────────────────
+  const renderSlotConfig = () => {
+    const handleSetSlotDuration = async () => {
+      if (!slotDoctorId) { addToast('Select a doctor.', 'error'); return; }
+      try {
+        const r = await fetch(`${API_BASE_URL}/api/admin/doctors/${slotDoctorId}/slot-duration`, {
+          method: 'PUT', headers,
+          body: JSON.stringify({ slotDurationMinutes: slotDuration }),
+        });
+        if (r.ok) { addToast('Slot duration updated!', 'success'); fetchAllDoctors(); }
+        else { const d = await r.json(); addToast(d.error || 'Failed.', 'error'); }
+      } catch { addToast('Error.', 'error'); }
+    };
+
+    return (
+      <Card className="max-w-lg mx-auto p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <Clock className="text-blue-600" size={22} /> Slot Duration Configuration
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Doctor</label>
+            <select value={slotDoctorId} onChange={(e) => { setSlotDoctorId(e.target.value); const doc = allDoctors.find((d) => d._id === e.target.value); if (doc) setSlotDuration(doc.slotDurationMinutes || 30); }}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+              <option value="">Choose a doctor</option>
+              {allDoctors.map((d) => <option key={d._id} value={d._id}>Dr. {d.firstName} {d.lastName} — {d.specialty}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Slot Duration</label>
+            <div className="grid grid-cols-5 gap-2">
+              {[15, 20, 30, 45, 60].map((min) => (
+                <button key={min} onClick={() => setSlotDuration(min)}
+                  className={`border rounded-lg py-2 text-sm font-medium transition-all ${slotDuration === min ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-700 hover:border-blue-400'}`}>
+                  {min} min
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button className="w-full" onClick={handleSetSlotDuration}>Update Slot Duration</Button>
+        </div>
       </Card>
     );
   };
+
+  // ─── All Appointments View ────────────────────────────────────────────────────
+  const renderAppointments = () => (
+    <Card>
+      <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+        <h3 className="font-semibold text-gray-900">All Appointments</h3>
+        <Button size="sm" variant="outline" onClick={fetchAllAppointments}>Refresh</Button>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {allAppointments.length === 0 ? (
+          <p className="p-6 text-center text-sm text-gray-500">No appointments found.</p>
+        ) : allAppointments.map((a) => (
+          <div key={a._id} className="p-4 text-sm">
+            <div className="flex justify-between">
+              <span className="font-medium">{a.patientId?.firstName} {a.patientId?.lastName}</span>
+              <Badge type={a.status === 'CONFIRMED' ? 'success' : a.status === 'CANCELLED' ? 'danger' : a.status === 'COMPLETED' ? 'info' : 'warning'}>{a.status}</Badge>
+            </div>
+            <p className="text-gray-500 text-xs">Dr. {a.doctorId?.firstName} {a.doctorId?.lastName} · {a.doctorId?.specialty}</p>
+            <p className="text-gray-500 text-xs">{a.date} · {a.startTime}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  // ─── Failed Notifications ─────────────────────────────────────────────────────
+  const renderNotifications = () => (
+    <Card>
+      <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+        <h3 className="font-semibold text-gray-900">Failed Email Notifications</h3>
+        <Button size="sm" variant="outline" onClick={fetchFailedNotifications}>Refresh</Button>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {failedNotifications.length === 0 ? (
+          <div className="p-6 text-center text-sm text-gray-500">✅ No failed notifications.</div>
+        ) : failedNotifications.map((n) => (
+          <div key={n._id} className="p-4 text-sm">
+            <div className="flex justify-between">
+              <span className="font-medium">{n.type}</span>
+              <Badge type="danger">Attempts: {n.retryCount}/{n.maxRetries}</Badge>
+            </div>
+            <p className="text-gray-500 text-xs">{n.toEmail} · {n.subject}</p>
+            {n.errorMessage && <p className="text-red-500 text-xs mt-1">{n.errorMessage}</p>}
+            <p className="text-gray-400 text-xs">{new Date(n.createdAt).toLocaleString()}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  // ─── Doctors Management List ──────────────────────────────────────────────────
+  const renderDoctorsList = () => (
+    <Card>
+      <div className="p-4 border-b border-gray-100"><h3 className="font-semibold text-gray-900">All Doctors</h3></div>
+      <div className="divide-y divide-gray-50">
+        {allDoctors.map((d) => (
+          <div key={d._id} className="p-4 flex justify-between items-center text-sm">
+            <div>
+              <p className="font-medium">Dr. {d.firstName} {d.lastName}</p>
+              <p className="text-xs text-gray-500">{d.specialty} · {d.qualification} · {d.experience || 0} yrs</p>
+              <p className="text-xs text-gray-500">Slot: {d.slotDurationMinutes || 30} min · Fee: ₹{d.consultationFee || 0}</p>
+            </div>
+            <Badge type={d.isActive !== false ? 'success' : 'danger'}>{d.isActive !== false ? 'Active' : 'Inactive'}</Badge>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  // ─── Profile Management ───────────────────────────────────────────────────────
+  const renderProfile = () => {
+    const [profileData, setProfileData] = useState({
+      firstName: adminInfo?.firstName || '',
+      lastName: adminInfo?.lastName || '',
+      email: adminInfo?.email || '',
+      phone: adminInfo?.phone || ''
+    });
+    const [profileLoading, setProfileLoading] = useState(false);
+
+    useEffect(() => {
+      if (adminInfo) setProfileData({ firstName: adminInfo.firstName, lastName: adminInfo.lastName, email: adminInfo.email, phone: adminInfo.phone || '' });
+    }, [adminInfo]);
+
+    const handleProfileUpdate = async (e) => {
+      e.preventDefault();
+      setProfileLoading(true);
+      try {
+        const r = await fetch(`${API_BASE_URL}/api/admin/profile`, {
+          method: 'PUT', headers,
+          body: JSON.stringify(profileData),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          addToast('Profile updated successfully!', 'success');
+          setAdminInfo(d.admin);
+        } else {
+          addToast(d.error || 'Failed to update profile.', 'error');
+        }
+      } catch { addToast('Network error.', 'error'); }
+      setProfileLoading(false);
+    };
+
+    return (
+      <Card className="max-w-xl mx-auto p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+          <UserCircle className="text-blue-600" size={22} /> Profile Settings
+        </h2>
+        <form onSubmit={handleProfileUpdate} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="First Name" required value={profileData.firstName} onChange={(e) => setProfileData((p) => ({ ...p, firstName: e.target.value }))} />
+            <Input label="Last Name" required value={profileData.lastName} onChange={(e) => setProfileData((p) => ({ ...p, lastName: e.target.value }))} />
+          </div>
+          <Input label="Email" type="email" required value={profileData.email} onChange={(e) => setProfileData((p) => ({ ...p, email: e.target.value }))} />
+          <Input label="Phone Number" type="tel" value={profileData.phone} onChange={(e) => setProfileData((p) => ({ ...p, phone: e.target.value }))} />
+          <Button type="submit" className="w-full" disabled={profileLoading}>
+            {profileLoading ? 'Updating...' : 'Save Profile'}
+          </Button>
+        </form>
+      </Card>
+    );
+  };
+
+  const navItems = [
+    { id: 'Dashboard',     icon: Home,        label: 'Dashboard' },
+    { id: 'Add Doctor',    icon: UserPlus,    label: 'Add Doctor' },
+    { id: 'Doctors',       icon: Stethoscope, label: 'Doctors' },
+    { id: 'Leave',         icon: Calendar,    label: 'Leave Mgmt' },
+    { id: 'Slots',         icon: Clock,       label: 'Slot Config' },
+    { id: 'Appointments',  icon: FileText,    label: 'Appointments' },
+    { id: 'Notifications', icon: Bell,        label: 'Notifications' },
+    { id: 'Profile',       icon: UserCircle,  label: 'Profile' },
+  ];
 
   return (
-    <div className="min-h-screen bg-blue-600">
-      <header className="bg-white p-4 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <Hospital className="h-6 w-6 text-blue-600" />
-          <span className="font-bold text-3xl">VIT MEDS</span>
+    <div className="min-h-screen bg-gray-50">
+      {toasts.map((t) => <Toast key={t.id} {...t} onClose={() => removeToast(t.id)} />)}
+
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Hospital size={24} className="text-blue-600" />
+            <span className="font-bold text-xl text-gray-900">Medicare</span>
+            <span className="hidden sm:inline text-sm text-gray-400">/ Admin</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600 hidden sm:block">{adminInfo?.firstName} {adminInfo?.lastName}</span>
+            <Button variant="outline" size="sm" onClick={() => { localStorage.removeItem('token'); navigate('/'); }}>Sign Out</Button>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => navigate('/')}>Sign Out</Button>
       </header>
-      <nav className="bg-blue-700 text-white p-4">
-        <ul className="flex space-x-4 justify-center">
-          <li>
-            <Button
-              variant={activeTab === 'Dashboard' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Dashboard' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Dashboard')}
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Dashboard
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Profile' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Profile' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Profile')}
-            >
-              <UserCircle className="w-4 h-4 mr-2" />
-              Profile
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Add Doctor' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Add Doctor' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Add Doctor')}
-            >
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add Doctor
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Add Admin' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Add Admin' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Add Admin')}
-            >
-              <ShieldCheck className="w-4 h-4 mr-2" />
-              Add Admin
-            </Button>
-          </li>
-        </ul>
-      </nav>
-      <main className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold text-white mb-8">Welcome, {adminInfo ? `${adminInfo.firstName} ${adminInfo.lastName}` : 'Admin'}</h1>
-        {activeTab === 'Dashboard' && renderDashboard()}
-        {activeTab === 'Profile' && renderProfile()}
-        {activeTab === 'Add Doctor' && renderAddDoctor()}
-        {activeTab === 'Add Admin' && renderAddAdmin()}
-      </main>
+
+      <div className="max-w-6xl mx-auto px-4 py-6 flex gap-6">
+        <aside className="hidden md:block w-52 shrink-0">
+          <nav className="space-y-1">
+            {navItems.map(({ id, icon: Icon, label }) => (
+              <button key={id} onClick={() => setActiveTab(id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === id ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                <Icon size={18} /> {label}
+                {id === 'Notifications' && failedNotifications.length > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{failedNotifications.length}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="flex-1">
+          <h1 className="text-2xl font-bold text-gray-900 mb-6">
+            {activeTab === 'Dashboard' ? `Welcome, ${adminInfo?.firstName || 'Admin'}` : activeTab.replace('Add ', 'Add New ')}
+          </h1>
+          {activeTab === 'Dashboard'     && renderDashboard()}
+          {activeTab === 'Add Doctor'    && renderAddDoctor()}
+          {activeTab === 'Doctors'       && renderDoctorsList()}
+          {activeTab === 'Leave'         && renderLeaveManagement()}
+          {activeTab === 'Slots'         && renderSlotConfig()}
+          {activeTab === 'Appointments'  && renderAppointments()}
+          {activeTab === 'Notifications' && renderNotifications()}
+          {activeTab === 'Profile'       && renderProfile()}
+        </main>
+      </div>
     </div>
   );
 }
