@@ -1,4 +1,4 @@
-# Medicare — AI-Powered Healthcare Appointment & Follow-up Manager
+# Doctor_Meds — AI-Powered Healthcare Appointment & Follow-up Manager
 
 A full-stack clinic management platform with **role-based portals** (Patient, Doctor, Admin), **AI-generated visit summaries** (Google Gemini), **email notifications** (Gmail + Nodemailer), and **Google Calendar integration**.
 
